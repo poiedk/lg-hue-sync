@@ -705,48 +705,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                         if !state.active {
                             external_stop = true;
                         }
-                        if wled_sync_enabled != live_st.wled_sync_enabled {
-                wled_sync_enabled = live_st.wled_sync_enabled;
-                if wled_sync_enabled
-                    && wled_active
-                    && pipeline_state == PipelineState::Running
-                {
-                    if let Some(w_cfg) = config.wled.as_ref() {
-                        match WledDdpStreamer::new(
-                            &w_cfg.ip,
-                            w_cfg.ddp_port,
-                            w_cfg.destination_id,
-                        ) {
-                            Ok(streamer) => {
-                                wled_streamer = Some(streamer);
-                                wled_retry.success();
-                                shared_state
-                                    .wled_connected
-                                    .store(true, Ordering::Relaxed);
-                            }
-                            Err(error) => {
-                                wled_sync_enabled = false;
-                                shared_state
-                                    .wled_connected
-                                    .store(false, Ordering::Relaxed);
-                                warn!("WLED sync remains off: {}", error);
-                            }
-                        }
-                    }
-                } else {
-                    if let (Some(ref mut streamer), Some(sampler)) =
-                        (&mut wled_streamer, wled_sampler.as_ref())
-                    {
-                        let black = vec![RgbColor::new(0, 0, 0); sampler.led_count()];
-                        let _ = streamer.send_frame(&black);
-                    }
-                    wled_streamer = None;
-                    shared_state
-                        .wled_connected
-                        .store(false, Ordering::Relaxed);
-                }
-            }
-            if let Some(ref mut s) = hue_sampler {
+                        if let Some(ref mut s) = hue_sampler {
                             s.set_smoothing_factor(state.smoothing_factor);
                         }
                         if let Some(ref mut ns) = nanoleaf_sampler {
@@ -1000,6 +959,47 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                     nanoleaf_streamer = None;
                     shared_state
                         .nanoleaf_connected
+                        .store(false, Ordering::Relaxed);
+                }
+            }
+            if wled_sync_enabled != live_st.wled_sync_enabled {
+                wled_sync_enabled = live_st.wled_sync_enabled;
+                if wled_sync_enabled
+                    && wled_active
+                    && pipeline_state == PipelineState::Running
+                {
+                    if let Some(w_cfg) = config.wled.as_ref() {
+                        match WledDdpStreamer::new(
+                            &w_cfg.ip,
+                            w_cfg.ddp_port,
+                            w_cfg.destination_id,
+                        ) {
+                            Ok(streamer) => {
+                                wled_streamer = Some(streamer);
+                                wled_retry.success();
+                                shared_state
+                                    .wled_connected
+                                    .store(true, Ordering::Relaxed);
+                            }
+                            Err(error) => {
+                                wled_sync_enabled = false;
+                                shared_state
+                                    .wled_connected
+                                    .store(false, Ordering::Relaxed);
+                                warn!("WLED sync remains off: {}", error);
+                            }
+                        }
+                    }
+                } else {
+                    if let (Some(ref mut streamer), Some(sampler)) =
+                        (&mut wled_streamer, wled_sampler.as_ref())
+                    {
+                        let black = vec![RgbColor::new(0, 0, 0); sampler.led_count()];
+                        let _ = streamer.send_frame(&black);
+                    }
+                    wled_streamer = None;
+                    shared_state
+                        .wled_connected
                         .store(false, Ordering::Relaxed);
                 }
             }
