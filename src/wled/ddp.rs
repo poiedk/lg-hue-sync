@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 
 use crate::color::RgbColor;
 
@@ -30,14 +30,10 @@ impl WledDdpStreamer {
             .set_nonblocking(true)
             .context("Failed to configure WLED DDP socket as nonblocking")?;
 
-        let target_addr: SocketAddr = format!("{}:{}", target_ip, target_port)
+        let target_ip: IpAddr = target_ip
             .parse()
-            .with_context(|| {
-                format!(
-                    "Invalid WLED DDP target address: {}:{}",
-                    target_ip, target_port
-                )
-            })?;
+            .with_context(|| format!("Invalid WLED DDP target IP: {}", target_ip))?;
+        let target_addr = SocketAddr::new(target_ip, target_port);
         socket
             .connect(target_addr)
             .with_context(|| format!("Failed to connect WLED DDP socket to {}", target_addr))?;
