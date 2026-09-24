@@ -6,6 +6,7 @@ mod nanoleaf;
 mod runtime;
 mod tv_power;
 mod web;
+mod wled;
 
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
@@ -25,6 +26,7 @@ use hue::{sync_entertainment_areas, HueDtlsClient, HueStreamPacketBuilder};
 use nanoleaf::{NanoleafPerimeterSampler, NanoleafUdpStreamer};
 use runtime::{PendingCommands, PipelineState, RetryState};
 use web::{start_web_server, CalibrationPattern, LiveSettings, SharedState};
+use wled::WledDdpStreamer;
 
 #[derive(Parser)]
 #[command(name = "lg-hue-sync")]
@@ -48,6 +50,11 @@ enum Commands {
     },
     /// Stream a test color pattern to Nanoleaf 4D lightstrip on port 60222
     TestNanoleaf {
+        #[arg(short, long, default_value = "config.json")]
+        config: PathBuf,
+    },
+    /// Stream a realtime DDP test pattern to a configured WLED controller
+    TestWled {
         #[arg(short, long, default_value = "config.json")]
         config: PathBuf,
     },
@@ -92,6 +99,7 @@ async fn main() -> Result<()> {
         Commands::Run { config } => run_daemon(config).await,
         Commands::TestPattern { config } => run_test_pattern(config).await,
         Commands::TestNanoleaf { config } => run_test_nanoleaf(config).await,
+        Commands::TestWled { config } => run_test_wled(config).await,
         Commands::TestCapture { config } => run_test_capture(config).await,
         Commands::Pair { bridge, output } => run_pair(bridge, output).await,
         Commands::SyncHue { config, area } => run_sync_hue(config, area).await,
@@ -1416,6 +1424,43 @@ async fn run_test_nanoleaf(config_path: PathBuf) -> Result<()> {
     }
 
     info!("[+] Nanoleaf 4D test pattern completed successfully!");
+    Ok(())
+}
+
+async fn run_test_wled(config_path: PathBuf) -> Result<()> {
+    let config = Config::load(&config_path)?;
+    let w_cfg = config
+        .wled
+        .ok_or_else(|| anyhow!("No WLED configuration found in {:?}", config_path))?;
+
+    if !w_cfg.enabled {
+        return Err(anyhow!("WLED output is disabled in {:?}", config_path));
+    }
+
+    let led_count = w_cfg.led_count.max(1);
+    info!(
+        "Connecting to WLED at {}:{} using DDP ({} LEDs, destination ID {})...",
+        w_cfg.ip, w_cfg.ddp_port, led_count, w_cfg.destination_id
+    );
+    let mut streamer =
+        WledDdpStreamer::new(&w_cfg.ip, w_cfg.ddp_port, w_cfg.destination_id)?;
+
+    info!("Streaming rotating rainbow test for 10 seconds...");
+    let start = std::time::Instant::now();
+    while start.elapsed().as_secs() < 10 {
+        let hue_offset = (start.elapsed().as_secs_f32() * 90.0) % 360.0;
+        let colors = (0..led_count)
+            .map(|i| {
+                let hue = (hue_offset + (i as f32 / led_count as f32) * 360.0) % 360.0;
+                let (r, g, b) = hsv_to_rgb(hue, 1.0, 1.0);
+                RgbColor::new(r, g, b)
+            })
+            .collect::<Vec<_>>();
+        streamer.send_frame(&colors)?;
+        tokio::time::sleep(Duration::from_millis(33)).await;
+    }
+
+    info!("[+] WLED DDP test pattern completed successfully!");
     Ok(())
 }
 
