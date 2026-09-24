@@ -89,6 +89,31 @@ impl LightZone {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WledConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub ip: String,
+    #[serde(default = "default_wled_port")]
+    pub ddp_port: u16,
+    #[serde(default = "default_wled_led_count")]
+    pub led_count: u16,
+    #[serde(default = "default_wled_destination_id")]
+    pub destination_id: u8,
+}
+
+fn default_wled_port() -> u16 {
+    4048
+}
+
+fn default_wled_led_count() -> u16 {
+    60
+}
+
+fn default_wled_destination_id() -> u8 {
+    1
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NanoleafConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -145,20 +170,27 @@ pub struct Config {
     /// Runtime preference: keep Hue configured but release its entertainment area when off.
     #[serde(default = "default_true")]
     pub hue_sync_enabled: bool,
+    #[serde(default)]
     pub bridge_ip: String,
+    #[serde(default)]
     pub username: String,
+    #[serde(default)]
     pub clientkey: String,
     /// SHA-256 fingerprint of the bridge's local V2 HTTPS certificate.
     #[serde(default)]
     pub hue_bridge_certificate_sha256: Option<String>,
     /// Deprecated V1 selector retained only to load existing configurations.
     /// New configurations store the V2 UUID here as well as in `entertainment_configuration_id`.
+    #[serde(default)]
     pub entertainment_area_id: String,
     /// V2 entertainment configuration UUID embedded in HueStream packets.
     #[serde(default)]
     pub entertainment_configuration_id: Option<String>,
     #[serde(default)]
     pub nanoleaf: Option<NanoleafConfig>,
+    /// Optional WLED controller receiving realtime RGB pixels over DDP/UDP.
+    #[serde(default)]
+    pub wled: Option<WledConfig>,
     /// Runtime preference: stop sending Nanoleaf UDP frames when off.
     #[serde(default = "default_true")]
     pub nanoleaf_sync_enabled: bool,
@@ -322,6 +354,7 @@ impl Config {
             entertainment_area_id: area_id.to_string(),
             entertainment_configuration_id: None,
             nanoleaf: None,
+            wled: None,
             nanoleaf_sync_enabled: true,
             fps: default_fps(),
             brightness_multiplier: default_brightness(),
@@ -407,6 +440,25 @@ mod tests {
         let saved = serde_json::to_value(config).unwrap();
         assert!(saved.get("hue_light_trims").is_none());
         assert!(saved["zones"][0].get("output_trim").is_none());
+    }
+
+    #[test]
+    fn wled_only_config_can_omit_hue_credentials() {
+        let config: Config = serde_json::from_str(
+            r#"{
+                "hue_enabled": false,
+                "wled": {
+                    "ip": "192.0.2.10",
+                    "led_count": 120
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let wled = config.wled.expect("WLED config should load");
+        assert_eq!(wled.ddp_port, 4048);
+        assert_eq!(wled.destination_id, 1);
+        assert_eq!(wled.led_count, 120);
     }
 
     #[test]
