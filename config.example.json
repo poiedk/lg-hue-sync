@@ -8,10 +8,16 @@
     "ip": "192.168.1.50",
     "ddp_port": 4048,
     "led_count": 120,
-    "destination_id": 1
+    "destination_id": 1,
+    "alignment": {
+      "start_corner": "bottom-center",
+      "reverse_direction": false,
+      "perimeter_offset": 0
+    }
   },
   "fps": 30,
   "brightness_multiplier": 1.0,
+  "wled_output_brightness": 1.0,
   "zones": [
     {
       "channel_id": 0,
