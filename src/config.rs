@@ -99,6 +99,8 @@ pub struct WledConfig {
     pub led_count: u16,
     #[serde(default = "default_wled_destination_id")]
     pub destination_id: u8,
+    #[serde(default)]
+    pub alignment: NanoleafAlignment,
 }
 
 fn default_wled_port() -> u16 {
@@ -204,6 +206,9 @@ pub struct Config {
     /// Independent final output trim for the Nanoleaf 4D perimeter.
     #[serde(default = "default_output_trim")]
     pub nanoleaf_output_brightness: f32,
+    /// Independent final output trim for the WLED perimeter.
+    #[serde(default = "default_output_trim")]
+    pub wled_output_brightness: f32,
     #[serde(default = "default_false")]
     pub use_xy_gamut: bool,
     #[serde(default = "default_true")]
@@ -360,6 +365,7 @@ impl Config {
             brightness_multiplier: default_brightness(),
             hue_output_brightness: default_output_trim(),
             nanoleaf_output_brightness: default_output_trim(),
+            wled_output_brightness: default_output_trim(),
             use_xy_gamut: false,
             hdr_tone_mapping: true,
             letterbox_detection: true,
@@ -459,6 +465,7 @@ mod tests {
         assert_eq!(wled.ddp_port, 4048);
         assert_eq!(wled.destination_id, 1);
         assert_eq!(wled.led_count, 120);
+        assert_eq!(wled.alignment, NanoleafAlignment::default());
     }
 
     #[test]
