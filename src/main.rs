@@ -373,6 +373,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
     // 1. Initialize Philips Hue DTLS client if active
     let mut hue_sync_enabled = config.hue_sync_enabled;
     let mut nanoleaf_sync_enabled = config.nanoleaf_sync_enabled;
+    let mut wled_sync_enabled = config.wled_sync_enabled;
     let mut hue_dtls = if hue_active && hue_sync_enabled && pipeline_should_run {
         let client = reconnect_hue(&config)?;
         Some(client)
@@ -459,7 +460,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
         sampler.set_gamma(config.gamma);
         sampler.set_max_color_step(config.max_color_step);
 
-        let streamer = if pipeline_should_run {
+        let streamer = if wled_sync_enabled && pipeline_should_run {
             let streamer =
                 WledDdpStreamer::new(&w_cfg.ip, w_cfg.ddp_port, w_cfg.destination_id)?;
             info!(
@@ -526,6 +527,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
         brightness_multiplier: config.brightness_multiplier,
         hue_output_brightness: config.hue_output_brightness,
         nanoleaf_output_brightness: config.nanoleaf_output_brightness,
+        wled_output_brightness: config.wled_output_brightness,
         saturation_boost: config.saturation_boost,
         peak_weight: config.peak_weight,
         gamma: config.gamma,
@@ -539,11 +541,17 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
         hdr_tone_mapping: config.hdr_tone_mapping,
         hue_sync_enabled,
         nanoleaf_sync_enabled,
+        wled_sync_enabled,
         auto_tv_power: config.auto_tv_power,
         nanoleaf_alignment: config
             .nanoleaf
             .as_ref()
             .map(|nanoleaf| nanoleaf.alignment)
+            .unwrap_or_default(),
+        wled_alignment: config
+            .wled
+            .as_ref()
+            .map(|wled| wled.alignment)
             .unwrap_or_default(),
         max_color_step: config.max_color_step,
     };
@@ -556,6 +564,11 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
             .nanoleaf
             .as_ref()
             .map(|nanoleaf| nanoleaf.ip.clone())
+            .unwrap_or_default(),
+        config
+            .wled
+            .as_ref()
+            .map(|wled| wled.ip.clone())
             .unwrap_or_default(),
         format!("{}x{}", config.capture_width, config.capture_height),
         config.zones.clone(),
@@ -573,6 +586,9 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
     shared_state
         .nanoleaf_connected
         .store(nanoleaf_streamer.is_some(), Ordering::Relaxed);
+    shared_state
+        .wled_connected
+        .store(wled_streamer.is_some(), Ordering::Relaxed);
     shared_state
         .capture_hardware
         .store(capture.is_real_hardware(), Ordering::Relaxed);
@@ -684,7 +700,48 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                         if !state.active {
                             external_stop = true;
                         }
-                        if let Some(ref mut s) = hue_sampler {
+                        if wled_sync_enabled != live_st.wled_sync_enabled {
+                wled_sync_enabled = live_st.wled_sync_enabled;
+                if wled_sync_enabled
+                    && wled_active
+                    && pipeline_state == PipelineState::Running
+                {
+                    if let Some(w_cfg) = config.wled.as_ref() {
+                        match WledDdpStreamer::new(
+                            &w_cfg.ip,
+                            w_cfg.ddp_port,
+                            w_cfg.destination_id,
+                        ) {
+                            Ok(streamer) => {
+                                wled_streamer = Some(streamer);
+                                wled_retry.success();
+                                shared_state
+                                    .wled_connected
+                                    .store(true, Ordering::Relaxed);
+                            }
+                            Err(error) => {
+                                wled_sync_enabled = false;
+                                shared_state
+                                    .wled_connected
+                                    .store(false, Ordering::Relaxed);
+                                warn!("WLED sync remains off: {}", error);
+                            }
+                        }
+                    }
+                } else {
+                    if let (Some(ref mut streamer), Some(sampler)) =
+                        (&mut wled_streamer, wled_sampler.as_ref())
+                    {
+                        let black = vec![RgbColor::new(0, 0, 0); sampler.led_count()];
+                        let _ = streamer.send_frame(&black);
+                    }
+                    wled_streamer = None;
+                    shared_state
+                        .wled_connected
+                        .store(false, Ordering::Relaxed);
+                }
+            }
+            if let Some(ref mut s) = hue_sampler {
                             s.set_smoothing_factor(state.smoothing_factor);
                         }
                         if let Some(ref mut ns) = nanoleaf_sampler {
@@ -849,7 +906,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                         }
                     }
 
-                    if wled_active {
+                    if wled_active && wled_sync_enabled {
                         if let Some(ref w_cfg) = config.wled {
                             match WledDdpStreamer::new(
                                 &w_cfg.ip,
@@ -859,9 +916,15 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                                 Ok(new_streamer) => {
                                     wled_streamer = Some(new_streamer);
                                     wled_retry.success();
+                                    shared_state
+                                        .wled_connected
+                                        .store(true, Ordering::Relaxed);
                                     info!("[+] Re-established WLED DDP streaming session.");
                                 }
                                 Err(error) => {
+                                    shared_state
+                                        .wled_connected
+                                        .store(false, Ordering::Relaxed);
                                     warn!("Failed to recreate WLED DDP streamer: {}", error);
                                 }
                             }
@@ -975,21 +1038,19 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                 ws.set_hdr_tone_mapping(live_st.hdr_tone_mapping);
                 ws.set_saturation_boost(live_st.saturation_boost);
                 ws.set_brightness_multiplier(
-                    live_st.brightness_multiplier * config.wled_output_brightness,
+                    live_st.brightness_multiplier * live_st.wled_output_brightness,
                 );
                 ws.set_peak_weight(live_st.peak_weight);
                 ws.set_gamma(live_st.gamma);
                 ws.set_noise_gate_threshold(live_st.noise_gate_threshold);
                 ws.set_max_color_step(live_st.max_color_step);
-                if let Some(w_cfg) = config.wled.as_ref() {
-                    ws.set_alignment(w_cfg.alignment);
-                }
+                ws.set_alignment(live_st.wled_alignment);
             }
             info!(
                 "Applied live settings: Hue={:.1}x, Nanoleaf={:.1}x, WLED={:.1}x, saturation={:.1}x, smoothing={:.2}, xy_mode={}",
                 current_hue_brightness,
                 live_st.brightness_multiplier * live_st.nanoleaf_output_brightness,
-                live_st.brightness_multiplier * config.wled_output_brightness,
+                live_st.brightness_multiplier * live_st.wled_output_brightness,
                 live_st.saturation_boost,
                 live_st.smoothing_factor,
                 current_use_xy
@@ -1003,6 +1064,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
             save_cfg.brightness_multiplier = live_st.brightness_multiplier;
             save_cfg.hue_output_brightness = live_st.hue_output_brightness;
             save_cfg.nanoleaf_output_brightness = live_st.nanoleaf_output_brightness;
+            save_cfg.wled_output_brightness = live_st.wled_output_brightness;
             save_cfg.saturation_boost = live_st.saturation_boost;
             save_cfg.peak_weight = live_st.peak_weight;
             save_cfg.gamma = live_st.gamma;
@@ -1016,9 +1078,13 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
             save_cfg.hdr_tone_mapping = live_st.hdr_tone_mapping;
             save_cfg.hue_sync_enabled = hue_sync_enabled;
             save_cfg.nanoleaf_sync_enabled = nanoleaf_sync_enabled;
+            save_cfg.wled_sync_enabled = wled_sync_enabled;
             save_cfg.auto_tv_power = live_st.auto_tv_power;
             if let Some(nanoleaf) = save_cfg.nanoleaf.as_mut() {
                 nanoleaf.alignment = live_st.nanoleaf_alignment;
+            }
+            if let Some(wled) = save_cfg.wled.as_mut() {
+                wled.alignment = live_st.wled_alignment;
             }
             save_cfg.max_color_step = live_st.max_color_step;
             if let Err(e) = save_cfg.save(&config_path) {
@@ -1152,8 +1218,8 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
             Ok(frame) => {
                 let mut is_scene_cut = false;
 
-                let perimeter_output_active =
-                    (nanoleaf_active && nanoleaf_sync_enabled) || wled_active;
+                let perimeter_output_active = (nanoleaf_active && nanoleaf_sync_enabled)
+                    || (wled_active && wled_sync_enabled);
                 if !(hue_active && hue_sync_enabled) && perimeter_output_active {
                     perimeter_only_frame_count += 1;
                     let global =
@@ -1383,7 +1449,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                 }
 
                 // 3. Process WLED TV perimeter via DDP.
-                if wled_active {
+                if wled_active && wled_sync_enabled {
                     if let (Some(ref mut wled_s), Some(ref mut wled_out)) =
                         (&mut wled_sampler, &mut wled_streamer)
                     {
@@ -1400,6 +1466,8 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                             })
                             .unwrap_or(wled_colors);
 
+                        *shared_state.live_wled_colors.write().unwrap() = wled_colors.clone();
+
                         let wled_changed = colors_changed(&last_wled_colors, &wled_colors);
                         let should_send = !config.adaptive_throttling
                             || wled_changed
@@ -1407,6 +1475,9 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                         if should_send {
                             last_wled_heartbeat = tokio::time::Instant::now();
                             if let Err(error) = wled_out.send_frame(&wled_colors) {
+                                shared_state
+                                    .wled_connected
+                                    .store(false, Ordering::Relaxed);
                                 warn!("WLED DDP frame send error: {}", error);
                                 if wled_retry.ready() {
                                     if let Some(ref w_cfg) = config.wled {
@@ -1418,6 +1489,9 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                                             Ok(new_streamer) => {
                                                 *wled_out = new_streamer;
                                                 wled_retry.success();
+                                                shared_state
+                                                    .wled_connected
+                                                    .store(true, Ordering::Relaxed);
                                             }
                                             Err(recreate_error) => {
                                                 let delay = wled_retry.failure();
@@ -1432,6 +1506,9 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                                 }
                             } else {
                                 wled_retry.success();
+                                shared_state
+                                    .wled_connected
+                                    .store(true, Ordering::Relaxed);
                                 last_wled_colors = wled_colors;
                                 emitted_light_update = true;
                             }
