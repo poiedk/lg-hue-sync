@@ -51,8 +51,9 @@ impl WledDdpStreamer {
     }
 
     pub fn send_frame(&mut self, colors: &[RgbColor]) -> Result<()> {
-        self.sequence = next_sequence(self.sequence);
-        let packets = encode_ddp_frame(colors, self.sequence, self.destination_id);
+        let (packets, final_sequence) =
+            encode_ddp_frame(colors, self.sequence, self.destination_id);
+        self.sequence = final_sequence;
 
         for packet in packets {
             match self.socket.send(&packet) {
@@ -85,23 +86,41 @@ fn next_sequence(previous: u8) -> u8 {
     }
 }
 
-fn encode_ddp_frame(colors: &[RgbColor], sequence: u8, destination_id: u8) -> Vec<Vec<u8>> {
+fn encode_ddp_frame(
+    colors: &[RgbColor],
+    previous_sequence: u8,
+    destination_id: u8,
+) -> (Vec<Vec<u8>>, u8) {
     let mut rgb = Vec::with_capacity(colors.len() * 3);
     for color in colors {
         rgb.extend_from_slice(&[color.r, color.g, color.b]);
     }
 
-    if rgb.is_empty() {
-        return vec![encode_packet(&[], sequence, destination_id, 0, true)];
-    }
-
-    let packet_count = (rgb.len() + DDP_MAX_DATA_LEN - 1) / DDP_MAX_DATA_LEN;
+    let packet_count = if rgb.is_empty() {
+        1
+    } else {
+        (rgb.len() + DDP_MAX_DATA_LEN - 1) / DDP_MAX_DATA_LEN
+    };
     let mut packets = Vec::with_capacity(packet_count);
     let mut offset = 0usize;
+    let mut sequence = previous_sequence;
+
+    if rgb.is_empty() {
+        sequence = next_sequence(sequence);
+        packets.push(encode_packet(
+            &[],
+            sequence,
+            destination_id,
+            0,
+            true,
+        ));
+        return (packets, sequence);
+    }
 
     while offset < rgb.len() {
         let end = (offset + DDP_MAX_DATA_LEN).min(rgb.len());
         let is_last = end == rgb.len();
+        sequence = next_sequence(sequence);
         packets.push(encode_packet(
             &rgb[offset..end],
             sequence,
@@ -112,7 +131,7 @@ fn encode_ddp_frame(colors: &[RgbColor], sequence: u8, destination_id: u8) -> Ve
         offset = end;
     }
 
-    packets
+    (packets, sequence)
 }
 
 fn encode_packet(
@@ -145,9 +164,10 @@ mod tests {
             RgbColor::new(255, 128, 64),
             RgbColor::new(10, 20, 30),
         ];
-        let packets = encode_ddp_frame(&colors, 7, 1);
+        let (packets, final_sequence) = encode_ddp_frame(&colors, 6, 1);
 
         assert_eq!(packets.len(), 1);
+        assert_eq!(final_sequence, 7);
         let packet = &packets[0];
         assert_eq!(packet[0], DDP_VERSION_1 | DDP_PUSH);
         assert_eq!(packet[1], 7);
@@ -161,14 +181,17 @@ mod tests {
     #[test]
     fn splits_frames_above_480_leds_and_pushes_only_last_packet() {
         let colors = vec![RgbColor::new(1, 2, 3); 481];
-        let packets = encode_ddp_frame(&colors, 15, 1);
+        let (packets, final_sequence) = encode_ddp_frame(&colors, 14, 1);
 
         assert_eq!(packets.len(), 2);
+        assert_eq!(final_sequence, 1);
         assert_eq!(packets[0][0], DDP_VERSION_1);
+        assert_eq!(packets[0][1], 15);
         assert_eq!(&packets[0][4..8], &[0, 0, 0, 0]);
         assert_eq!(&packets[0][8..10], &[0x05, 0xA0]);
 
         assert_eq!(packets[1][0], DDP_VERSION_1 | DDP_PUSH);
+        assert_eq!(packets[1][1], 1);
         assert_eq!(&packets[1][4..8], &[0, 0, 5, 0xA0]);
         assert_eq!(&packets[1][8..10], &[0, 3]);
         assert_eq!(&packets[1][10..], &[1, 2, 3]);
