@@ -117,3 +117,31 @@ Default behavior preserves `config.json` in a timestamped backup directory. Use 
 - Gradient count unexpected: inspect `entertainment_configuration.channels[].members`; physical segment count differs from stream-channel count.
 - Nanoleaf order wrong: run **4D Tracer**, then adjust corner, direction, and offset under **Calibration**.
 - Standby leaves lights owned: enable **Follow TV power** and inspect transition logs.
+
+
+## Legacy webOS 3.x build
+
+The normal `make build` target remains the canonical webOS 5/6 build and is intentionally unchanged.
+For older TVs, use the separate community-SDK build:
+
+```bash
+make build-webos3
+file target/webos3-armv7/lg-hue-sync
+readelf --version-info target/webos3-armv7/lg-hue-sync
+```
+
+This path pins the OpenLGTV/webOS Buildroot SDK release `2026.08-webos` and enables a narrowly
+scoped compatibility shim for libc entry points that modern Rust dependencies may reference
+(`getauxval`, `gettid`, and `sendmmsg`). The shim is compiled only when
+`LG_WEBOS_LEGACY=1`; it is not linked into host builds or the normal Debian Buster target.
+
+Do not deploy the legacy binary blindly. First run the read-only TV probe:
+
+```bash
+make probe-tv TV_IP=<tv-ip>
+```
+
+Review the reported libc version, `libdile_vt` presence/symbols, architecture, `/dev/mem`
+access, and service support. A successful cross-build proves link compatibility with the SDK,
+not that a particular firmware's capture quirks are correct. Physical capture and WLED output
+still require supervised on-device verification.

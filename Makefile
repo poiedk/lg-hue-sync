@@ -15,8 +15,11 @@ BINARY         := target/$(TARGET)/release/lg-hue-sync
 REMOTE_DIR     := /var/home/root/lg-hue-sync
 RUST_VERSION   ?= stable
 CROSS_IMAGE    ?= lg-hue-sync-cross:rust-$(RUST_VERSION)
+LEGACY_CROSS_IMAGE ?= lg-hue-sync-webos3:rust-$(RUST_VERSION)
 CARGO_CACHE    ?= lg-hue-sync-cargo
 TARGET_CACHE   ?= lg-hue-sync-target
+LEGACY_TARGET_CACHE ?= lg-hue-sync-webos3-target
+LEGACY_BINARY  := target/webos3-armv7/lg-hue-sync
 
 SSH_OPTS       := -p $(SSH_PORT) -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5
 SCP_OPTS       := -P $(SSH_PORT) -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5
@@ -29,9 +32,9 @@ YELLOW := \033[33m
 RED    := \033[31m
 RESET  := \033[0m
 
-.PHONY: help setup check toolchain-update require-tv cross-image build build-local test test-pattern deps-check deps-update release-check \
+.PHONY: help setup check toolchain-update require-tv cross-image legacy-cross-image build build-webos3 build-local test test-pattern deps-check deps-update release-check \
         deploy deploy-bin deploy-config deploy-app provision-luna status logs start stop restart \
-        test-capture ssh root pair clean cross-clean
+        test-capture probe-tv ssh root pair clean cross-clean
 
 ## display available targets and usage
 help:
@@ -39,7 +42,8 @@ help:
 	@printf "$(CYAN)Build Targets:$(RESET)\n"
 	@printf "  $(GREEN)make cross-image$(RESET)   Build the cached Debian Buster/Rust cross-toolchain image\n"
 	@printf "  $(GREEN)make toolchain-update$(RESET) Refresh stable Rust, rebuild the Docker toolchain, check and build\n"
-	@printf "  $(GREEN)make build$(RESET)         Cross-compile release binary for LG webOS (ARMv7, Debian Buster container)\n"
+	@printf "  $(GREEN)make build$(RESET)         Cross-compile release binary for LG webOS 5/6 (ARMv7, Debian Buster)\n"
+	@printf "  $(GREEN)make build-webos3$(RESET)  Cross-compile legacy binary with the webOS Buildroot SDK\n"
 	@printf "  $(GREEN)make build-local$(RESET)   Build binary for host OS (macOS) via local cargo\n"
 	@printf "  $(GREEN)make clean$(RESET)         Clean host build artifacts\n"
 	@printf "  $(GREEN)make cross-clean$(RESET)   Remove cross-build image and Docker caches\n\n"
@@ -51,7 +55,8 @@ help:
 	@printf "  $(GREEN)make deps-update$(RESET)   Update Cargo.lock within Cargo.toml constraints\n"
 	@printf "  $(GREEN)make release-check$(RESET) Validate version metadata before tagging\n"
 	@printf "  $(GREEN)make test-pattern$(RESET)  Run local rainbow test pattern across Hue and Nanoleaf (Mac -> Lights)\n"
-	@printf "  $(GREEN)make test-capture$(RESET)  Run vtcapture HDMI screen capture probe directly on TV over SSH\n\n"
+	@printf "  $(GREEN)make test-capture$(RESET)  Run vtcapture HDMI screen capture probe directly on TV over SSH\n"
+	@printf "  $(GREEN)make probe-tv$(RESET)      Read-only legacy webOS ABI/capture compatibility probe\n\n"
 	@printf "$(CYAN)Deployment (TV IP: $(TV_IP)):$(RESET)\n"
 	@printf "  $(GREEN)make deploy$(RESET)        Full deployment: build, upload binary & config, configure systemd/init.d, start\n"
 	@printf "  $(GREEN)make deploy-bin$(RESET)    Quick deploy: scp binary only to TV and restart daemon\n"
@@ -71,6 +76,10 @@ help:
 ## build the reusable ARMv7/glibc 2.28 cross-toolchain image
 cross-image:
 	docker build --build-arg RUST_VERSION=$(RUST_VERSION) -t $(CROSS_IMAGE) -f docker/Dockerfile.cross docker
+
+## build the reusable legacy webOS 3.x SDK image
+legacy-cross-image:
+	docker build --build-arg RUST_VERSION=$(RUST_VERSION) -t $(LEGACY_CROSS_IMAGE) -f docker/Dockerfile.webos3 docker/..
 
 ## refresh the stable host and Docker toolchains, then verify the project
 toolchain-update:
@@ -101,6 +110,16 @@ build: cross-image
 	  -v $(TARGET_CACHE):/target-cache \
 	  $(CROSS_IMAGE)
 	@printf "$(GREEN)[+] Build complete: $(BINARY) ($$(du -h $(BINARY) | cut -f1))$(RESET)\n"
+
+## cross-compile with the webOS Buildroot SDK for older firmware (for example webOS 3.x)
+build-webos3: legacy-cross-image
+	@printf "$(CYAN)[*] Cross-compiling legacy webOS binary with the Buildroot SDK...$(RESET)\n"
+	docker run --rm \
+	  -v "$PWD":/app -w /app \
+	  -v $(CARGO_CACHE):/cargo-cache \
+	  -v $(LEGACY_TARGET_CACHE):/target-cache-webos3 \
+	  $(LEGACY_CROSS_IMAGE)
+	@printf "$(GREEN)[+] Legacy build complete: $(LEGACY_BINARY) ($(du -h $(LEGACY_BINARY) | cut -f1))$(RESET)\n"
 
 ## build binary locally on host machine
 build-local:
@@ -206,6 +225,10 @@ restart: require-tv
 	@ssh $(SSH_OPTS) root@$(TV_IP) "systemctl stop lg-hue-sync 2>/dev/null || true; sleep 2; systemctl start lg-hue-sync"
 	@printf "$(GREEN)[+] lg-hue-sync restarted.$(RESET)\n"
 
+## run a read-only ABI/capture compatibility probe on the TV
+probe-tv: require-tv
+	@./scripts/probe_tv_compat.sh $(TV_IP) $(SSH_PORT)
+
 ## open interactive root SSH session to TV
 ssh: require-tv
 	@ssh -t $(SSH_OPTS) root@$(TV_IP)
@@ -224,4 +247,5 @@ clean:
 
 cross-clean:
 	@docker image ls --format '{{.Repository}}:{{.Tag}}' --filter 'reference=lg-hue-sync-cross:rust-*' | while IFS= read -r image; do docker image rm "$$image"; done
-	-docker volume rm $(CARGO_CACHE) $(TARGET_CACHE)
+	-docker image rm $(LEGACY_CROSS_IMAGE)
+	-docker volume rm $(CARGO_CACHE) $(TARGET_CACHE) $(LEGACY_TARGET_CACHE)

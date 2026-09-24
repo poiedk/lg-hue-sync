@@ -1,0 +1,35 @@
+FROM debian:bookworm-slim
+
+ARG RUST_VERSION=stable
+ARG WEBOS_SDK_TAG=2026.08-webos
+
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    CARGO_HOME=/cargo-cache \
+    PATH=/opt/rust/cargo/bin:${PATH} \
+    CARGO_TARGET_DIR=/target-cache-webos3 \
+    WEBOS_SDK_ROOT=/opt/webos-sdk/arm-webos-linux-gnueabi_sdk-buildroot \
+    LG_WEBOS_LEGACY=1 \
+    CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABI_LINKER=/app/scripts/webos-legacy-cc.sh \
+    CC_armv7_unknown_linux_gnueabi=/app/scripts/webos-legacy-cc.sh \
+    AR_armv7_unknown_linux_gnueabi=/opt/webos-sdk/arm-webos-linux-gnueabi_sdk-buildroot/bin/arm-webos-linux-gnueabi-ar
+
+RUN apt-get update -qq \
+    && apt-get install -y --no-install-recommends \
+      build-essential ca-certificates curl file make perl pkg-config python3 \
+      binutils tar gzip xz-utils \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/rust/cargo /opt/rust/rustup /cargo-cache /target-cache-webos3 /opt/webos-sdk \
+    && curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
+      | CARGO_HOME=/opt/rust/cargo sh -s -- -y --no-modify-path \
+        --default-toolchain "${RUST_VERSION}" --profile minimal \
+        --target armv7-unknown-linux-gnueabi \
+    && curl -fL \
+      "https://github.com/openlgtv/buildroot-nc4/releases/download/${WEBOS_SDK_TAG}/arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz" \
+      -o /tmp/webos-sdk.tar.gz \
+    && tar -xzf /tmp/webos-sdk.tar.gz -C /opt/webos-sdk \
+    && rm -f /tmp/webos-sdk.tar.gz \
+    && /opt/webos-sdk/arm-webos-linux-gnueabi_sdk-buildroot/relocate-sdk.sh
+
+WORKDIR /app
+
+CMD ["bash", "-lc", "cargo build --locked --target armv7-unknown-linux-gnueabi --release && mkdir -p /app/target/webos3-armv7 && cp /target-cache-webos3/armv7-unknown-linux-gnueabi/release/lg-hue-sync /app/target/webos3-armv7/lg-hue-sync"]
