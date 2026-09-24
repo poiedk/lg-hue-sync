@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Local control dashboard for LG webOS ambient lighting with Philips Hue Entertainment and Nanoleaf 4D.">
+  <meta name="description" content="Local control dashboard for LG webOS ambient lighting with Philips Hue Entertainment, Nanoleaf 4D and WLED.">
   <meta name="application-name" content="lg-hue-sync">
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#090a0f">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2f4f8">
-  <title>LG C1 Ambient Lighting Sync</title>
+  <title>LG webOS Ambient Lighting Sync</title>
   <style>
     :root {
       color-scheme: dark;
@@ -335,7 +335,7 @@
   </section>
 
   <details class="card accordion" id="devicesSection" open>
-    <summary>Devices · Hue &amp; Nanoleaf</summary>
+    <summary>Devices · Hue, Nanoleaf &amp; WLED</summary>
     <div class="accordion-content">
     <section class="device-subsection">
     <h2 class="device-heading">Philips Hue</h2>
@@ -370,6 +370,22 @@
     </div>
     <div class="control-group" style="margin-top:14px"><div class="control-header"><span>Nanoleaf Output Trim</span><span class="control-val" id="valNanoleafOutput">1.00x</span></div><input type="range" id="sliderNanoleafOutput" aria-label="Nanoleaf Output Trim" min="0.25" max="2.0" step="0.05" value="1.0" oninput="updateSettings()"></div>
     <div class="toggle-desc">Balances the 4D perimeter without changing the screen sample.</div>
+    </section>
+
+    <section class="device-subsection">
+    <h2 class="device-heading">WLED</h2>
+    <div class="toggle-desc">Native realtime DDP output. No pairing token is required; the controller only needs to be reachable on the TV network.</div>
+    <input class="text-input" id="wledIp" inputmode="decimal" placeholder="WLED controller IP">
+    <input class="text-input" id="wledLedCount" inputmode="numeric" type="number" min="4" max="2048" value="120" placeholder="LED count">
+    <button class="secondary-btn" style="width:100%" onclick="configureWled()">Save WLED controller</button>
+    <div class="toggle-desc" id="wledSetupStatus" style="margin-top:8px">DDP uses UDP port 4048 and output ID 1.</div>
+    <div class="device-status"><strong>WLED status</strong><div id="statWled">Not configured</div></div>
+    <div class="toggle-row">
+      <div><div class="toggle-label">WLED Sync</div><div class="toggle-desc">Stop realtime DDP frames without removing the controller configuration</div></div>
+      <label class="switch"><input type="checkbox" id="toggleWledSync" checked onchange="updateSettings()"><span class="slider"></span></label>
+    </div>
+    <div class="control-group" style="margin-top:14px"><div class="control-header"><span>WLED Output Trim</span><span class="control-val" id="valWledOutput">1.00x</span></div><input type="range" id="sliderWledOutput" aria-label="WLED Output Trim" min="0.25" max="2.0" step="0.05" value="1.0" oninput="updateSettings()"></div>
+    <div class="toggle-desc">Scales the video-derived RGB values before DDP transmission.</div>
     </section>
     </div>
   </details>
@@ -493,6 +509,17 @@
       <div class="control-group"><div class="control-header"><label for="nanoleafOffset">Perimeter offset</label><span class="control-val" id="valNanoleafOffset">0</span></div><input type="range" id="nanoleafOffset" min="0" max="39" step="1" value="0" oninput="document.getElementById('valNanoleafOffset').innerText=this.value"></div>
       <button class="secondary-btn" style="width:100%" onclick="applyNanoleafAlignment()">Apply 4D alignment</button>
       <div class="toggle-desc" id="nanoleafAlignmentStatus" style="margin-top:8px"></div>
+    </div>
+    <div class="device-subsection">
+      <h2 class="device-heading">WLED perimeter alignment</h2>
+      <div class="toggle-desc">Run the Perimeter tracer, then choose where LED 0 starts and which direction the strip travels behind the TV.</div>
+      <label for="wledStartCorner" class="toggle-label">Start corner</label>
+      <select class="text-input" id="wledStartCorner"><option value="bottom-center">Bottom centre</option><option value="bottom-left">Bottom left</option><option value="top-left">Top left</option><option value="top-right">Top right</option><option value="bottom-right">Bottom right</option></select>
+      <label for="wledDirection" class="toggle-label">Direction</label>
+      <select class="text-input" id="wledDirection"><option value="false">Forward</option><option value="true">Reverse</option></select>
+      <div class="control-group"><div class="control-header"><label for="wledOffset">LED offset</label><span class="control-val" id="valWledOffset">0</span></div><input type="range" id="wledOffset" min="0" max="119" step="1" value="0" oninput="document.getElementById('valWledOffset').innerText=this.value"></div>
+      <button class="secondary-btn" style="width:100%" onclick="applyWledAlignment()">Apply WLED alignment</button>
+      <div class="toggle-desc" id="wledAlignmentStatus" style="margin-top:8px"></div>
     </div>
     </div>
   </details>
@@ -633,13 +660,21 @@
       document.getElementById('fpsDisplay').innerText = data.light_update_fps.toFixed(1) + ' upd/s';
       document.getElementById('statHue').innerText = data.hue_connected ? 'Connected @ ' + data.hue_bridge_ip : 'Disconnected';
       document.getElementById('statNanoleaf').innerText = data.nanoleaf_connected ? 'Connected @ ' + data.nanoleaf_ip + ' (40 Panels)' : (data.nanoleaf_ip ? 'Configured @ ' + data.nanoleaf_ip + ' · Disconnected' : 'Disconnected');
+      document.getElementById('statWled').innerText = data.wled_connected
+        ? 'Streaming DDP @ ' + data.wled_ip + ' (' + data.wled_led_count + ' LEDs)'
+        : (data.wled_ip ? 'Configured @ ' + data.wled_ip + ' · Output stopped' : 'Not configured');
       if (document.activeElement !== document.getElementById('nanoleafIp') && data.nanoleaf_ip) document.getElementById('nanoleafIp').value = data.nanoleaf_ip;
+      if (document.activeElement !== document.getElementById('wledIp') && data.wled_ip) document.getElementById('wledIp').value = data.wled_ip;
+      if (document.activeElement !== document.getElementById('wledLedCount') && data.wled_led_count) document.getElementById('wledLedCount').value = data.wled_led_count;
+      const wledOffset = document.getElementById('wledOffset');
+      wledOffset.max = String(Math.min(255, Math.max(0, (data.wled_led_count || 120) - 1)));
       document.getElementById('captureResolution').innerText = data.capture_resolution;
       const settings = data.settings;
       if (!document.activeElement.matches('input[type="range"], select')) {
         document.getElementById('sliderBrightness').value = settings.brightness_multiplier;
         document.getElementById('sliderHueOutput').value = settings.hue_output_brightness;
         document.getElementById('sliderNanoleafOutput').value = settings.nanoleaf_output_brightness;
+        document.getElementById('sliderWledOutput').value = settings.wled_output_brightness;
         document.getElementById('sliderSaturation').value = settings.saturation_boost;
         document.getElementById('sliderPeak').value = settings.peak_weight;
         document.getElementById('sliderGamma').value = settings.gamma;
@@ -656,14 +691,20 @@
         document.getElementById('toggleHdr').checked = settings.hdr_tone_mapping;
         document.getElementById('toggleHueSync').checked = settings.hue_sync_enabled;
         document.getElementById('toggleNanoleafSync').checked = settings.nanoleaf_sync_enabled;
+        document.getElementById('toggleWledSync').checked = settings.wled_sync_enabled;
         document.getElementById('toggleAutoTvPower').checked = settings.auto_tv_power;
         document.getElementById('nanoleafStartCorner').value = settings.nanoleaf_alignment.start_corner;
         document.getElementById('nanoleafDirection').value = String(settings.nanoleaf_alignment.reverse_direction);
         document.getElementById('nanoleafOffset').value = settings.nanoleaf_alignment.perimeter_offset;
         document.getElementById('valNanoleafOffset').innerText = settings.nanoleaf_alignment.perimeter_offset;
+        document.getElementById('wledStartCorner').value = settings.wled_alignment.start_corner;
+        document.getElementById('wledDirection').value = String(settings.wled_alignment.reverse_direction);
+        document.getElementById('wledOffset').value = settings.wled_alignment.perimeter_offset;
+        document.getElementById('valWledOffset').innerText = settings.wled_alignment.perimeter_offset;
         document.getElementById('valBrightness').innerText = settings.brightness_multiplier.toFixed(1) + 'x';
         document.getElementById('valHueOutput').innerText = settings.hue_output_brightness.toFixed(2) + 'x';
         document.getElementById('valNanoleafOutput').innerText = settings.nanoleaf_output_brightness.toFixed(2) + 'x';
+        document.getElementById('valWledOutput').innerText = settings.wled_output_brightness.toFixed(2) + 'x';
         document.getElementById('valSaturation').innerText = settings.saturation_boost.toFixed(1) + 'x';
         document.getElementById('valPeak').innerText = Math.round(settings.peak_weight * 100) + '%';
         document.getElementById('valGamma').innerText = settings.gamma.toFixed(2);
@@ -672,7 +713,7 @@
         document.getElementById('valColorStep').innerText = settings.max_color_step + ' RGB steps';
       }
       document.getElementById('calibrationStatus').innerText = data.calibration_pattern
-        ? 'Pattern active: ' + data.calibration_pattern + '. Expected RGB values are sent directly to Hue and Nanoleaf.'
+        ? 'Pattern active: ' + data.calibration_pattern + '. Expected RGB values are sent directly to Hue, Nanoleaf and WLED.'
         : 'Live video sync active.';
       updateHueZones(data.hue_zones, data.hue_colors);
 
@@ -721,6 +762,7 @@
       const brightness = parseFloat(document.getElementById('sliderBrightness').value);
       const hueOutputBrightness = parseFloat(document.getElementById('sliderHueOutput').value);
       const nanoleafOutputBrightness = parseFloat(document.getElementById('sliderNanoleafOutput').value);
+      const wledOutputBrightness = parseFloat(document.getElementById('sliderWledOutput').value);
       const saturation = parseFloat(document.getElementById('sliderSaturation').value);
       const peak = parseFloat(document.getElementById('sliderPeak').value);
       const gamma = parseFloat(document.getElementById('sliderGamma').value);
@@ -733,11 +775,13 @@
       const hdr = document.getElementById('toggleHdr').checked;
       const hueSync = document.getElementById('toggleHueSync').checked;
       const nanoleafSync = document.getElementById('toggleNanoleafSync').checked;
+      const wledSync = document.getElementById('toggleWledSync').checked;
       const autoTvPower = document.getElementById('toggleAutoTvPower').checked;
 
       document.getElementById('valBrightness').innerText = brightness.toFixed(1) + 'x';
       document.getElementById('valHueOutput').innerText = hueOutputBrightness.toFixed(2) + 'x';
       document.getElementById('valNanoleafOutput').innerText = nanoleafOutputBrightness.toFixed(2) + 'x';
+      document.getElementById('valWledOutput').innerText = wledOutputBrightness.toFixed(2) + 'x';
       document.getElementById('valSaturation').innerText = saturation.toFixed(1) + 'x';
       document.getElementById('valPeak').innerText = Math.round(peak * 100) + '%';
       document.getElementById('valGamma').innerText = gamma.toFixed(2);
@@ -749,6 +793,7 @@
         brightness_multiplier: brightness,
         hue_output_brightness: hueOutputBrightness,
         nanoleaf_output_brightness: nanoleafOutputBrightness,
+        wled_output_brightness: wledOutputBrightness,
         saturation_boost: saturation,
         peak_weight: peak,
         gamma: gamma,
@@ -762,11 +807,17 @@
         hdr_tone_mapping: hdr,
         hue_sync_enabled: hueSync,
         nanoleaf_sync_enabled: nanoleafSync,
+        wled_sync_enabled: wledSync,
         auto_tv_power: autoTvPower,
         nanoleaf_alignment: {
           start_corner: document.getElementById('nanoleafStartCorner').value,
           reverse_direction: document.getElementById('nanoleafDirection').value === 'true',
           perimeter_offset: Number(document.getElementById('nanoleafOffset').value)
+        },
+        wled_alignment: {
+          start_corner: document.getElementById('wledStartCorner').value,
+          reverse_direction: document.getElementById('wledDirection').value === 'true',
+          perimeter_offset: Number(document.getElementById('wledOffset').value)
         },
         max_color_step: maxColorStep
       };
@@ -906,6 +957,25 @@
     function pairHue() { pairDevice('hue'); }
     function pairNanoleaf() { pairDevice('nanoleaf'); }
 
+    async function configureWled() {
+      const status = document.getElementById('wledSetupStatus');
+      const ip = document.getElementById('wledIp').value.trim();
+      const ledCount = Number(document.getElementById('wledLedCount').value);
+      status.innerText = 'Saving WLED controller…';
+      try {
+        const res = await fetch('/api/wled/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ip: ip, led_count: ledCount })
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'Could not save WLED controller');
+        status.innerText = 'Saved. The daemon is reconnecting WLED over DDP.';
+      } catch (error) {
+        status.innerText = error.message;
+      }
+    }
+
     async function applyNanoleafAlignment() {
       const status = document.getElementById('nanoleafAlignmentStatus');
       const payload = {
@@ -920,6 +990,28 @@
         if (!res.ok) throw new Error(body.error || 'Could not save Nanoleaf alignment');
         status.innerText = 'Alignment saved and applied.';
       } catch (error) { status.innerText = error.message; }
+    }
+
+    async function applyWledAlignment() {
+      const status = document.getElementById('wledAlignmentStatus');
+      const payload = {
+        start_corner: document.getElementById('wledStartCorner').value,
+        reverse_direction: document.getElementById('wledDirection').value === 'true',
+        perimeter_offset: Number(document.getElementById('wledOffset').value)
+      };
+      status.innerText = 'Saving alignment…';
+      try {
+        const res = await fetch('/api/wled/alignment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'Could not save WLED alignment');
+        status.innerText = 'Alignment saved and applied.';
+      } catch (error) {
+        status.innerText = error.message;
+      }
     }
 
     async function testPattern(pattern) {
