@@ -95,7 +95,7 @@ fn encode_ddp_frame(
     let packet_count = if rgb.is_empty() {
         1
     } else {
-        (rgb.len() + DDP_MAX_DATA_LEN - 1) / DDP_MAX_DATA_LEN
+        rgb.len().div_ceil(DDP_MAX_DATA_LEN)
     };
     let mut packets = Vec::with_capacity(packet_count);
     let mut offset = 0usize;

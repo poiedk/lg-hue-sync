@@ -152,6 +152,7 @@ pub struct SharedState {
 }
 
 impl SharedState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         initial_settings: LiveSettings,
         hue_bridge_ip: String,
