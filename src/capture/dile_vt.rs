@@ -311,9 +311,7 @@ impl DileVtCapture {
             // hyperion-webos capture backend. Fall back to the normal locations if a
             // vendor variant rejects it.
             let mut dump_location = if webos_34 {
-                info!(
-                    "Applying webOS 3.4 DILE quirk: trying undocumented dump location 2 first."
-                );
+                info!("Applying webOS 3.4 DILE quirk: trying undocumented dump location 2 first.");
                 DUMP_WEBOS_34_UNDOCUMENTED
             } else {
                 DUMP_DISPLAY_OUTPUT
@@ -321,9 +319,7 @@ impl DileVtCapture {
 
             if fn_set_dump(handle, dump_location) != 0 {
                 if webos_34 {
-                    warn!(
-                        "webOS 3.4 dump location 2 rejected; falling back to DISPLAY_OUTPUT."
-                    );
+                    warn!("webOS 3.4 dump location 2 rejected; falling back to DISPLAY_OUTPUT.");
                     dump_location = DUMP_DISPLAY_OUTPUT;
                 } else {
                     warn!("DISPLAY_OUTPUT rejected, falling back to SCALER_OUTPUT");
