@@ -1,6 +1,8 @@
 use crate::{
     color::RgbColor,
-    config::{Config, ConfigError, LightZone, NanoleafAlignment, NanoleafConfig},
+    config::{
+        Config, ConfigError, LightZone, NanoleafAlignment, NanoleafConfig, WledConfig,
+    },
     hue, nanoleaf,
 };
 use axum::{
@@ -40,6 +42,8 @@ pub struct LiveSettings {
     pub hue_output_brightness: f32,
     #[serde(default = "default_output_trim")]
     pub nanoleaf_output_brightness: f32,
+    #[serde(default = "default_output_trim")]
+    pub wled_output_brightness: f32,
     pub saturation_boost: f32,
     pub peak_weight: f32,
     pub gamma: f32,
@@ -58,9 +62,13 @@ pub struct LiveSettings {
     pub hue_sync_enabled: bool,
     pub nanoleaf_sync_enabled: bool,
     #[serde(default = "default_true")]
+    pub wled_sync_enabled: bool,
+    #[serde(default = "default_true")]
     pub auto_tv_power: bool,
     #[serde(default)]
     pub nanoleaf_alignment: NanoleafAlignment,
+    #[serde(default)]
+    pub wled_alignment: NanoleafAlignment,
     pub max_color_step: u8,
 }
 
@@ -128,8 +136,10 @@ pub struct SharedState {
     pub light_updates_x100: AtomicU32,
     pub hue_bridge_ip: String,
     pub nanoleaf_ip: RwLock<String>,
+    pub wled_ip: RwLock<String>,
     pub hue_connected: AtomicBool,
     pub nanoleaf_connected: AtomicBool,
+    pub wled_connected: AtomicBool,
     pub capture_hardware: AtomicBool,
     /// 0 = unknown, 1 = active, 2 = standby/off.
     pub tv_power_state: AtomicU32,
@@ -137,6 +147,7 @@ pub struct SharedState {
     pub current_settings: RwLock<LiveSettings>,
     pub live_hue_colors: RwLock<Vec<(u8, RgbColor)>>,
     pub live_nanoleaf_colors: RwLock<Vec<RgbColor>>,
+    pub live_wled_colors: RwLock<Vec<RgbColor>>,
     pub hue_zones: RwLock<Vec<LightZone>>,
     pub calibration_pattern: RwLock<Option<CalibrationPattern>>,
 }
@@ -146,6 +157,7 @@ impl SharedState {
         initial_settings: LiveSettings,
         hue_bridge_ip: String,
         nanoleaf_ip: String,
+        wled_ip: String,
         capture_res: String,
         hue_zones: Vec<LightZone>,
         command_tx: mpsc::Sender<ControlCommand>,
@@ -157,14 +169,17 @@ impl SharedState {
             light_updates_x100: AtomicU32::new(0),
             hue_bridge_ip,
             nanoleaf_ip: RwLock::new(nanoleaf_ip),
+            wled_ip: RwLock::new(wled_ip),
             hue_connected: AtomicBool::new(false),
             nanoleaf_connected: AtomicBool::new(false),
+            wled_connected: AtomicBool::new(false),
             capture_hardware: AtomicBool::new(false),
             tv_power_state: AtomicU32::new(0),
             capture_resolution: RwLock::new(capture_res),
             current_settings: RwLock::new(initial_settings),
             live_hue_colors: RwLock::new(Vec::new()),
             live_nanoleaf_colors: RwLock::new(Vec::new()),
+            live_wled_colors: RwLock::new(Vec::new()),
             hue_zones: RwLock::new(hue_zones),
             calibration_pattern: RwLock::new(None),
         }
@@ -222,10 +237,13 @@ struct StatusResponse {
     hue_bridge_ip: String,
     nanoleaf_connected: bool,
     nanoleaf_ip: String,
+    wled_connected: bool,
+    wled_ip: String,
     capture_hardware: bool,
     capture_resolution: String,
     settings: LiveSettings,
     nanoleaf_colors: Vec<RgbColor>,
+    wled_colors: Vec<RgbColor>,
     hue_colors: Vec<(u8, RgbColor)>,
     hue_zones: Vec<LightZone>,
     calibration_pattern: Option<&'static str>,
@@ -245,6 +263,12 @@ struct HueAreasResponse {
 #[derive(Deserialize)]
 struct PairRequest {
     ip: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct WledSetupRequest {
+    ip: String,
+    led_count: u16,
 }
 
 #[derive(Deserialize)]
@@ -289,6 +313,8 @@ pub async fn start_web_server(
         .route("/api/toggle", post(toggle))
         .route("/api/settings", post(settings))
         .route("/api/nanoleaf/alignment", post(update_nanoleaf_alignment))
+        .route("/api/wled/config", post(configure_wled))
+        .route("/api/wled/alignment", post(update_wled_alignment))
         .route("/api/hue/areas", get(hue_areas))
         .route("/api/hue/area", post(select_hue_area))
         .route("/api/save-config", post(save_config))
@@ -331,10 +357,13 @@ async fn status(State(state): State<AppState>) -> Json<StatusResponse> {
         hue_bridge_ip: shared.hue_bridge_ip.clone(),
         nanoleaf_connected: shared.nanoleaf_connected.load(Ordering::Relaxed),
         nanoleaf_ip: shared.nanoleaf_ip.read().unwrap().clone(),
+        wled_connected: shared.wled_connected.load(Ordering::Relaxed),
+        wled_ip: shared.wled_ip.read().unwrap().clone(),
         capture_hardware: shared.capture_hardware.load(Ordering::Relaxed),
         capture_resolution: shared.capture_resolution.read().unwrap().clone(),
         settings: shared.current_settings.read().unwrap().clone(),
         nanoleaf_colors: shared.live_nanoleaf_colors.read().unwrap().clone(),
+        wled_colors: shared.live_wled_colors.read().unwrap().clone(),
         hue_colors: shared.live_hue_colors.read().unwrap().clone(),
         hue_zones: shared.hue_zones.read().unwrap().clone(),
         calibration_pattern: shared
@@ -402,6 +431,78 @@ async fn update_nanoleaf_alignment(
     let settings = {
         let mut settings = state.shared.current_settings.write().unwrap();
         settings.nanoleaf_alignment = alignment;
+        settings.clone()
+    };
+    state
+        .shared
+        .send_command(ControlCommand::ApplySettings(settings))
+        .await?;
+    Ok(Json(StatusMessage { status: "saved" }))
+}
+
+async fn configure_wled(
+    State(state): State<AppState>,
+    Json(request): Json<WledSetupRequest>,
+) -> Result<Json<StatusMessage>, ApiError> {
+    if !(4..=2048).contains(&request.led_count) {
+        return Err(ApiError::BadRequest(
+            "WLED LED count must be between 4 and 2048".to_string(),
+        ));
+    }
+
+    let config_path = state.config_path.clone();
+    let ip = validate_device_ip(&request.ip).map_err(ApiError::BadRequest)?;
+    let state_ip = ip.clone();
+    let led_count = request.led_count;
+    tokio::task::spawn_blocking(move || {
+        let mut config = load_setup_config(&config_path)?;
+        let mut wled = config.wled.take().unwrap_or_else(WledConfig::default);
+        wled.enabled = true;
+        wled.ip = ip;
+        wled.led_count = led_count;
+        config.wled = Some(wled);
+        config.wled_sync_enabled = true;
+        config.save(&config_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| ApiError::SetupFailed(format!("WLED setup task failed: {error}")))?
+    .map_err(ApiError::SetupFailed)?;
+
+    *state.shared.wled_ip.write().unwrap() = state_ip;
+    state
+        .shared
+        .send_command(ControlCommand::Reconfigure)
+        .await?;
+    Ok(Json(StatusMessage { status: "saved" }))
+}
+
+async fn update_wled_alignment(
+    State(state): State<AppState>,
+    Json(alignment): Json<NanoleafAlignment>,
+) -> Result<Json<StatusMessage>, ApiError> {
+    let config_path = state.config_path.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut config = load_setup_config(&config_path)?;
+        let wled = config
+            .wled
+            .as_mut()
+            .ok_or_else(|| "Configure WLED before applying its alignment".to_string())?;
+        if alignment.perimeter_offset as u16 >= wled.led_count.max(4) {
+            return Err(format!(
+                "WLED perimeter offset must be between 0 and {}",
+                wled.led_count.max(4) - 1
+            ));
+        }
+        wled.alignment = alignment;
+        config.save(&config_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| ApiError::SetupFailed(format!("WLED alignment task failed: {error}")))?
+    .map_err(ApiError::SetupFailed)?;
+
+    let settings = {
+        let mut settings = state.shared.current_settings.write().unwrap();
+        settings.wled_alignment = alignment;
         settings.clone()
     };
     state
