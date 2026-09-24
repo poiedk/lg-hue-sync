@@ -570,6 +570,11 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
             .as_ref()
             .map(|wled| wled.ip.clone())
             .unwrap_or_default(),
+        config
+            .wled
+            .as_ref()
+            .map(|wled| wled.led_count.max(4))
+            .unwrap_or(0),
         format!("{}x{}", config.capture_width, config.capture_height),
         config.zones.clone(),
         command_tx,
