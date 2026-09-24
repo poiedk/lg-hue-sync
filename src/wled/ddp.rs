@@ -103,13 +103,7 @@ fn encode_ddp_frame(
 
     if rgb.is_empty() {
         sequence = next_sequence(sequence);
-        packets.push(encode_packet(
-            &[],
-            sequence,
-            destination_id,
-            0,
-            true,
-        ));
+        packets.push(encode_packet(&[], sequence, destination_id, 0, true));
         return (packets, sequence);
     }
 
@@ -156,10 +150,7 @@ mod tests {
 
     #[test]
     fn encodes_single_packet_rgb24_frame() {
-        let colors = [
-            RgbColor::new(255, 128, 64),
-            RgbColor::new(10, 20, 30),
-        ];
+        let colors = [RgbColor::new(255, 128, 64), RgbColor::new(10, 20, 30)];
         let (packets, final_sequence) = encode_ddp_frame(&colors, 6, 1);
 
         assert_eq!(packets.len(), 1);

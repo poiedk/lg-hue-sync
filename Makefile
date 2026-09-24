@@ -115,11 +115,11 @@ build: cross-image
 build-webos3: legacy-cross-image
 	@printf "$(CYAN)[*] Cross-compiling legacy webOS binary with the Buildroot SDK...$(RESET)\n"
 	docker run --rm \
-	  -v "$PWD":/app -w /app \
+	  -v "$(CURDIR)":/app -w /app \
 	  -v $(CARGO_CACHE):/cargo-cache \
 	  -v $(LEGACY_TARGET_CACHE):/target-cache-webos3 \
 	  $(LEGACY_CROSS_IMAGE)
-	@printf "$(GREEN)[+] Legacy build complete: $(LEGACY_BINARY) ($(du -h $(LEGACY_BINARY) | cut -f1))$(RESET)\n"
+	@printf "$(GREEN)[+] Legacy build complete: $(LEGACY_BINARY)$(RESET)\n"
 
 ## build binary locally on host machine
 build-local:

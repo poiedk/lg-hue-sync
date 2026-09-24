@@ -1,8 +1,6 @@
 use crate::{
     color::RgbColor,
-    config::{
-        Config, ConfigError, LightZone, NanoleafAlignment, NanoleafConfig, WledConfig,
-    },
+    config::{Config, ConfigError, LightZone, NanoleafAlignment, NanoleafConfig, WledConfig},
     hue, nanoleaf,
 };
 use axum::{

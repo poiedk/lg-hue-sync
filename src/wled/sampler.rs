@@ -163,9 +163,8 @@ fn remap_colors(colors: &[RgbColor], alignment: NanoleafAlignment) -> Vec<RgbCol
         1isize
     };
     let coarse_start = generic_corner_index(len, alignment.start_corner) as isize;
-    let effective_start = (coarse_start
-        + direction * alignment.perimeter_offset as isize)
-        .rem_euclid(len as isize);
+    let effective_start =
+        (coarse_start + direction * alignment.perimeter_offset as isize).rem_euclid(len as isize);
 
     let mut output = vec![RgbColor::new(0, 0, 0); len];
     for (canonical_index, color) in colors.iter().enumerate() {
@@ -189,10 +188,7 @@ mod tests {
     #[test]
     fn default_alignment_preserves_canonical_order() {
         let input = colors(12);
-        assert_eq!(
-            remap_colors(&input, NanoleafAlignment::default()),
-            input
-        );
+        assert_eq!(remap_colors(&input, NanoleafAlignment::default()), input);
     }
 
     #[test]
@@ -255,14 +251,8 @@ mod tests {
             generic_corner_index(120, NanoleafStartCorner::BottomLeft),
             19
         );
-        assert_eq!(
-            generic_corner_index(120, NanoleafStartCorner::TopLeft),
-            41
-        );
-        assert_eq!(
-            generic_corner_index(120, NanoleafStartCorner::TopRight),
-            79
-        );
+        assert_eq!(generic_corner_index(120, NanoleafStartCorner::TopLeft), 41);
+        assert_eq!(generic_corner_index(120, NanoleafStartCorner::TopRight), 79);
         assert_eq!(
             generic_corner_index(120, NanoleafStartCorner::BottomRight),
             101
@@ -271,14 +261,8 @@ mod tests {
 
     #[test]
     fn enforces_minimum_four_perimeter_leds() {
-        let sampler = WledPerimeterSampler::new(
-            1,
-            false,
-            1.0,
-            0.0,
-            1.0,
-            NanoleafAlignment::default(),
-        );
+        let sampler =
+            WledPerimeterSampler::new(1, false, 1.0, 0.0, 1.0, NanoleafAlignment::default());
         assert_eq!(sampler.led_count(), 4);
     }
 }

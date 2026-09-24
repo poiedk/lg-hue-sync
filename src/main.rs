@@ -461,8 +461,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
         sampler.set_max_color_step(config.max_color_step);
 
         let streamer = if wled_sync_enabled && pipeline_should_run {
-            let streamer =
-                WledDdpStreamer::new(&w_cfg.ip, w_cfg.ddp_port, w_cfg.destination_id)?;
+            let streamer = WledDdpStreamer::new(&w_cfg.ip, w_cfg.ddp_port, w_cfg.destination_id)?;
             info!(
                 "[+] WLED DDP streaming ready: {} perimeter LEDs on UDP port {}",
                 sampler.led_count(),
@@ -741,9 +740,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                 let black = vec![RgbColor::new(0, 0, 0); ns.panel_count()];
                 let _ = ns.send_frame(&black, 0);
             }
-            if let (Some(ref mut ws), Some(sampler)) =
-                (&mut wled_streamer, wled_sampler.as_ref())
-            {
+            if let (Some(ref mut ws), Some(sampler)) = (&mut wled_streamer, wled_sampler.as_ref()) {
                 let black = vec![RgbColor::new(0, 0, 0); sampler.led_count()];
                 let _ = ws.send_frame(&black);
             }
@@ -880,15 +877,11 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                                 Ok(new_streamer) => {
                                     wled_streamer = Some(new_streamer);
                                     wled_retry.success();
-                                    shared_state
-                                        .wled_connected
-                                        .store(true, Ordering::Relaxed);
+                                    shared_state.wled_connected.store(true, Ordering::Relaxed);
                                     info!("[+] Re-established WLED DDP streaming session.");
                                 }
                                 Err(error) => {
-                                    shared_state
-                                        .wled_connected
-                                        .store(false, Ordering::Relaxed);
+                                    shared_state.wled_connected.store(false, Ordering::Relaxed);
                                     warn!("Failed to recreate WLED DDP streamer: {}", error);
                                 }
                             }
@@ -964,28 +957,18 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
             }
             if wled_sync_enabled != live_st.wled_sync_enabled {
                 wled_sync_enabled = live_st.wled_sync_enabled;
-                if wled_sync_enabled
-                    && wled_active
-                    && pipeline_state == PipelineState::Running
-                {
+                if wled_sync_enabled && wled_active && pipeline_state == PipelineState::Running {
                     if let Some(w_cfg) = config.wled.as_ref() {
-                        match WledDdpStreamer::new(
-                            &w_cfg.ip,
-                            w_cfg.ddp_port,
-                            w_cfg.destination_id,
-                        ) {
+                        match WledDdpStreamer::new(&w_cfg.ip, w_cfg.ddp_port, w_cfg.destination_id)
+                        {
                             Ok(streamer) => {
                                 wled_streamer = Some(streamer);
                                 wled_retry.success();
-                                shared_state
-                                    .wled_connected
-                                    .store(true, Ordering::Relaxed);
+                                shared_state.wled_connected.store(true, Ordering::Relaxed);
                             }
                             Err(error) => {
                                 wled_sync_enabled = false;
-                                shared_state
-                                    .wled_connected
-                                    .store(false, Ordering::Relaxed);
+                                shared_state.wled_connected.store(false, Ordering::Relaxed);
                                 warn!("WLED sync remains off: {}", error);
                             }
                         }
@@ -998,9 +981,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                         let _ = streamer.send_frame(&black);
                     }
                     wled_streamer = None;
-                    shared_state
-                        .wled_connected
-                        .store(false, Ordering::Relaxed);
+                    shared_state.wled_connected.store(false, Ordering::Relaxed);
                 }
             }
             if let Some(ref mut s) = hue_sampler {
@@ -1229,8 +1210,8 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                     perimeter_only_frame_count += 1;
                     let global =
                         frame_average(frame.data, frame.width, frame.height, frame.is_bgra);
-                    is_scene_cut =
-                        perimeter_only_frame_count > 1 && global.delta(perimeter_only_global) > 0.35;
+                    is_scene_cut = perimeter_only_frame_count > 1
+                        && global.delta(perimeter_only_global) > 0.35;
                     perimeter_only_global = global;
                     if config.letterbox_detection
                         && (perimeter_only_frame_count == 1
@@ -1466,9 +1447,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                             is_scene_cut,
                         );
                         let wled_colors = calibration_pattern(&shared_state)
-                            .map(|pattern| {
-                                calibration_perimeter_colors(pattern, wled_colors.len())
-                            })
+                            .map(|pattern| calibration_perimeter_colors(pattern, wled_colors.len()))
                             .unwrap_or(wled_colors);
 
                         *shared_state.live_wled_colors.write().unwrap() = wled_colors.clone();
@@ -1480,9 +1459,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                         if should_send {
                             last_wled_heartbeat = tokio::time::Instant::now();
                             if let Err(error) = wled_out.send_frame(&wled_colors) {
-                                shared_state
-                                    .wled_connected
-                                    .store(false, Ordering::Relaxed);
+                                shared_state.wled_connected.store(false, Ordering::Relaxed);
                                 warn!("WLED DDP frame send error: {}", error);
                                 if wled_retry.ready() {
                                     if let Some(ref w_cfg) = config.wled {
@@ -1511,9 +1488,7 @@ async fn run_daemon(config_path: PathBuf) -> Result<()> {
                                 }
                             } else {
                                 wled_retry.success();
-                                shared_state
-                                    .wled_connected
-                                    .store(true, Ordering::Relaxed);
+                                shared_state.wled_connected.store(true, Ordering::Relaxed);
                                 last_wled_colors = wled_colors;
                                 emitted_light_update = true;
                             }
@@ -1692,8 +1667,7 @@ async fn run_test_wled(config_path: PathBuf) -> Result<()> {
         "Connecting to WLED at {}:{} using DDP ({} LEDs, destination ID {})...",
         w_cfg.ip, w_cfg.ddp_port, led_count, w_cfg.destination_id
     );
-    let mut streamer =
-        WledDdpStreamer::new(&w_cfg.ip, w_cfg.ddp_port, w_cfg.destination_id)?;
+    let mut streamer = WledDdpStreamer::new(&w_cfg.ip, w_cfg.ddp_port, w_cfg.destination_id)?;
 
     info!("Streaming rotating rainbow test for 10 seconds...");
     let start = std::time::Instant::now();

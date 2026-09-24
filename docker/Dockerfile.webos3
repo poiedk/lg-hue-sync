@@ -32,4 +32,4 @@ RUN apt-get update -qq \
 
 WORKDIR /app
 
-CMD ["bash", "-lc", "cargo build --locked --target armv7-unknown-linux-gnueabi --release && mkdir -p /app/target/webos3-armv7 && cp /target-cache-webos3/armv7-unknown-linux-gnueabi/release/lg-hue-sync /app/target/webos3-armv7/lg-hue-sync"]
+CMD ["bash", "-c", "cargo build --locked --target armv7-unknown-linux-gnueabi --release && mkdir -p /app/target/webos3-armv7 && cp /target-cache-webos3/armv7-unknown-linux-gnueabi/release/lg-hue-sync /app/target/webos3-armv7/lg-hue-sync"]
