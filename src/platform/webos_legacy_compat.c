@@ -1,39 +1,24 @@
 /*
  * Compatibility shims for older LG webOS libc builds.
  *
- * webOS 3.x-era firmware predates several libc wrappers referenced by modern
- * Rust std/dependencies. Keep this file narrowly scoped to symbols that can be
- * implemented against kernel interfaces available on the target.
+ * The current OpenLGTV webOS SDK patched GCC already links its static
+ * glibc-polyfills library, which supplies getauxval. Keep this file narrowly
+ * scoped to additional wrappers referenced by modern Rust std/dependencies.
  */
-#include <stdio.h>
 #include <unistd.h>
 #include <sys/syscall.h>
 
-unsigned long getauxval(unsigned long type) {
-    struct {
-        unsigned long a_type;
-        unsigned long a_val;
-    } aux;
-    unsigned long result = 0;
+#ifndef SYS_gettid
+# ifdef __NR_gettid
+#  define SYS_gettid __NR_gettid
+# endif
+#endif
 
-    FILE *file = fopen("/proc/self/auxv", "rb");
-    if (!file) {
-        return 0;
-    }
-
-    while (fread(&aux, sizeof(aux), 1, file) == 1) {
-        if (aux.a_type == 0) {
-            break;
-        }
-        if (aux.a_type == type) {
-            result = aux.a_val;
-            break;
-        }
-    }
-
-    fclose(file);
-    return result;
-}
+#ifndef SYS_sendmmsg
+# ifdef __NR_sendmmsg
+#  define SYS_sendmmsg __NR_sendmmsg
+# endif
+#endif
 
 int gettid(void) {
     return (int)syscall(SYS_gettid);

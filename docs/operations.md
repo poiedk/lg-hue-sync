@@ -44,14 +44,11 @@ Dependency updates are deliberate direct-to-`main` changes: inspect `Cargo.lock`
 
 [`webosbrew/native-toolchain`](https://github.com/webosbrew/native-toolchain) is the community reference SDK. On macOS, download the matching Darwin archive, extract it to a path without spaces, and run its `relocate-sdk.sh`. Its CMake toolchain file is under `share/buildroot/toolchainfile.cmake`.
 
-It was evaluated for this Rust repository, not ignored. Relocation repairs its original CI sysroot path, but the current Rust dependency graph still fails to link because the SDK libc lacks `getauxval`, required by Rust's supported `armv7-unknown-linux-gnueabi` standard library and `ring`.
-
-Do not add a fake `getauxval` shim. Reconsider the native SDK when either:
-
-- the SDK libc exports `getauxval`; or
-- a custom Rust standard library built against its sysroot passes tests, ELF inspection, and a supervised TV probe.
-
-Until then, the Debian Buster container is canonical. [`hyperhdr-webos-loader`](https://github.com/webosbrew/hyperhdr-webos-loader) remains the reference for native service, frontend, autostart, and IPK layout; it uses the same Buildroot SDK, but does not solve this Rust libc boundary.
+An older SDK revision was evaluated previously and failed to satisfy `getauxval` for the Rust
+dependency graph. The current OpenLGTV `2026.08-webos` SDK changes that boundary: its patched GCC
+automatically links a static `glibc-polyfills` library that includes a `getauxval` backport.
+The normal Debian Buster container remains canonical for webOS 5/6, while `make build-webos3`
+uses the newer community SDK as an isolated compatibility path for older firmware. [`hyperhdr-webos-loader`](https://github.com/webosbrew/hyperhdr-webos-loader) remains the reference for native service, frontend, autostart, and IPK layout; it uses the same Buildroot SDK, but does not solve this Rust libc boundary.
 
 ## First install
 
@@ -130,10 +127,11 @@ file target/webos3-armv7/lg-hue-sync
 readelf --version-info target/webos3-armv7/lg-hue-sync
 ```
 
-This path pins the OpenLGTV/webOS Buildroot SDK release `2026.08-webos` and enables a narrowly
-scoped compatibility shim for libc entry points that modern Rust dependencies may reference
-(`getauxval`, `gettid`, and `sendmmsg`). The shim is compiled only when
-`LG_WEBOS_LEGACY=1`; it is not linked into host builds or the normal Debian Buster target.
+This path pins the OpenLGTV/webOS Buildroot SDK release `2026.08-webos`. That SDK's patched GCC
+links its static `glibc-polyfills` compatibility library by default, including its `getauxval`
+backport. The project adds only the remaining narrow syscall wrappers currently needed by modern
+Rust dependencies (`gettid` and `sendmmsg`). These extra shims are compiled only when
+`LG_WEBOS_LEGACY=1`; they are not linked into host builds or the normal Debian Buster target.
 
 Do not deploy the legacy binary blindly. First run the read-only TV probe:
 

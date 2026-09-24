@@ -79,7 +79,7 @@ cross-image:
 
 ## build the reusable legacy webOS 3.x SDK image
 legacy-cross-image:
-	docker build --build-arg RUST_VERSION=$(RUST_VERSION) -t $(LEGACY_CROSS_IMAGE) -f docker/Dockerfile.webos3 docker/..
+	docker build --build-arg RUST_VERSION=$(RUST_VERSION) -t $(LEGACY_CROSS_IMAGE) -f docker/Dockerfile.webos3 .
 
 ## refresh the stable host and Docker toolchains, then verify the project
 toolchain-update:
