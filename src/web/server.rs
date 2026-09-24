@@ -140,6 +140,7 @@ pub struct SharedState {
     pub hue_connected: AtomicBool,
     pub nanoleaf_connected: AtomicBool,
     pub wled_connected: AtomicBool,
+    pub wled_led_count: AtomicU32,
     pub capture_hardware: AtomicBool,
     /// 0 = unknown, 1 = active, 2 = standby/off.
     pub tv_power_state: AtomicU32,
@@ -158,6 +159,7 @@ impl SharedState {
         hue_bridge_ip: String,
         nanoleaf_ip: String,
         wled_ip: String,
+        wled_led_count: u16,
         capture_res: String,
         hue_zones: Vec<LightZone>,
         command_tx: mpsc::Sender<ControlCommand>,
@@ -173,6 +175,7 @@ impl SharedState {
             hue_connected: AtomicBool::new(false),
             nanoleaf_connected: AtomicBool::new(false),
             wled_connected: AtomicBool::new(false),
+            wled_led_count: AtomicU32::new(wled_led_count as u32),
             capture_hardware: AtomicBool::new(false),
             tv_power_state: AtomicU32::new(0),
             capture_resolution: RwLock::new(capture_res),
@@ -239,6 +242,7 @@ struct StatusResponse {
     nanoleaf_ip: String,
     wled_connected: bool,
     wled_ip: String,
+    wled_led_count: u32,
     capture_hardware: bool,
     capture_resolution: String,
     settings: LiveSettings,
@@ -359,6 +363,7 @@ async fn status(State(state): State<AppState>) -> Json<StatusResponse> {
         nanoleaf_ip: shared.nanoleaf_ip.read().unwrap().clone(),
         wled_connected: shared.wled_connected.load(Ordering::Relaxed),
         wled_ip: shared.wled_ip.read().unwrap().clone(),
+        wled_led_count: shared.wled_led_count.load(Ordering::Relaxed),
         capture_hardware: shared.capture_hardware.load(Ordering::Relaxed),
         capture_resolution: shared.capture_resolution.read().unwrap().clone(),
         settings: shared.current_settings.read().unwrap().clone(),
@@ -469,6 +474,10 @@ async fn configure_wled(
     .map_err(ApiError::SetupFailed)?;
 
     *state.shared.wled_ip.write().unwrap() = state_ip;
+    state
+        .shared
+        .wled_led_count
+        .store(led_count as u32, Ordering::Relaxed);
     state
         .shared
         .send_command(ControlCommand::Reconfigure)
