@@ -146,3 +146,13 @@ Review the reported libc version, `libdile_vt` presence/symbols, architecture, `
 access, and service support. A successful cross-build proves link compatibility with the SDK,
 not that a particular firmware's capture quirks are correct. Physical capture and WLED output
 still require supervised on-device verification.
+
+
+### webOS 3.4 capture quirk
+
+The DILE backend detects webOS 3.4 from `/etc/starfish-release` or `/etc/os-release`.
+On that firmware family it prefers the legacy `DILE_VT_Create(0)` initialization path and tries
+the undocumented DILE dump location `2` first, matching the webosbrew/hyperion-webos
+`QUIRK_ALTERNATIVE_DUMP_LOCATION` behavior. If a vendor variant rejects location `2`, the
+backend falls back to `DISPLAY_OUTPUT` and then `SCALER_OUTPUT`. Newer firmware keeps the
+existing CreateEx-first behavior.

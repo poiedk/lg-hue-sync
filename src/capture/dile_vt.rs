@@ -154,6 +154,23 @@ const STATE_FREEZED: u32 = 0x02;
 const STATE_FRAMERATE_DIVIDE: u32 = 0x10;
 const DUMP_SCALER_OUTPUT: i32 = 0;
 const DUMP_DISPLAY_OUTPUT: i32 = 1;
+const DUMP_WEBOS_34_UNDOCUMENTED: i32 = 2;
+
+fn release_is_webos_34(release: &str) -> bool {
+    release
+        .split(|character: char| {
+            character.is_whitespace()
+                || matches!(character, '=' | '"' | '\'' | '(' | ')' | ',' | ';')
+        })
+        .any(|token| token == "3.4" || token.starts_with("3.4."))
+}
+
+fn is_webos_34() -> bool {
+    ["/etc/starfish-release", "/etc/os-release"]
+        .iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .any(|release| release_is_webos_34(&release))
+}
 
 struct MappedPlane {
     data_ptr: *mut u8,
@@ -250,23 +267,33 @@ impl DileVtCapture {
                 lib.get(b"DILE_VT_GetCurrentVideoFrameBufferProperty\0")?;
             let fn_wait_vsync: libloading::Symbol<FnWaitVsync> = lib.get(b"DILE_VT_WaitVsync\0")?;
 
-            // 1. Initialize context:
-            // On webOS 6.x (LG C1 Alpha 9 Gen 4), DILE_VT_CreateEx(0, 1) MUST be called first (QUIRK_DILE_VT_CREATE_EX).
-            // Calling DILE_VT_Create(0) first attempts to allocate 5 buffers which fails and leaks /dev/video60,
-            // causing subsequent CreateEx calls to fail with -EBUSY.
+            // 1. Initialize context.
+            // webOS 3.4 uses the legacy DILE_VT_Create path in the community capture stack.
+            // On webOS 6.x (LG C1 Alpha 9 Gen 4), DILE_VT_CreateEx(0, 1) MUST be called first:
+            // calling DILE_VT_Create(0) there can allocate five buffers, fail, and leak /dev/video60.
             // Never call DILE_VT_Init() as it opens /dev/video60 directly.
+            let webos_34 = is_webos_34();
             let mut handle = std::ptr::null_mut();
 
-            if let Some(ref create_ex) = fn_create_ex {
-                info!("Attempting DILE_VT_CreateEx(0, 1) (QUIRK_DILE_VT_CREATE_EX)...");
-                handle = create_ex(0, 1);
-                if handle.is_null() {
-                    info!("DILE_VT_CreateEx(0, 1) returned NULL, trying DILE_VT_CreateEx(0, 2)...");
-                    handle = create_ex(0, 2);
-                }
+            if webos_34 {
+                info!("Detected webOS 3.4; preferring legacy DILE_VT_Create(0) path.");
+                handle = fn_create(0);
             }
 
             if handle.is_null() {
+                if let Some(ref create_ex) = fn_create_ex {
+                    info!("Attempting DILE_VT_CreateEx(0, 1) (QUIRK_DILE_VT_CREATE_EX)...");
+                    handle = create_ex(0, 1);
+                    if handle.is_null() {
+                        info!(
+                            "DILE_VT_CreateEx(0, 1) returned NULL, trying DILE_VT_CreateEx(0, 2)..."
+                        );
+                        handle = create_ex(0, 2);
+                    }
+                }
+            }
+
+            if handle.is_null() && !webos_34 {
                 info!("CreateEx not available or returned NULL, attempting DILE_VT_Create(0)...");
                 handle = fn_create(0);
             }
@@ -279,11 +306,35 @@ impl DileVtCapture {
 
             info!("[+] Successfully acquired DILE_VT handle: {:?}", handle);
 
-            // 2. Configure dump location: DISPLAY_OUTPUT with SCALER_OUTPUT fallback
-            let mut dump_location = DUMP_DISPLAY_OUTPUT;
+            // 2. Configure dump location.
+            // webOS 3.4 requires undocumented DILE dump location 2 in the community
+            // hyperion-webos capture backend. Fall back to the normal locations if a
+            // vendor variant rejects it.
+            let mut dump_location = if webos_34 {
+                info!(
+                    "Applying webOS 3.4 DILE quirk: trying undocumented dump location 2 first."
+                );
+                DUMP_WEBOS_34_UNDOCUMENTED
+            } else {
+                DUMP_DISPLAY_OUTPUT
+            };
+
             if fn_set_dump(handle, dump_location) != 0 {
-                warn!("DISPLAY_OUTPUT rejected, falling back to SCALER_OUTPUT");
-                dump_location = DUMP_SCALER_OUTPUT;
+                if webos_34 {
+                    warn!(
+                        "webOS 3.4 dump location 2 rejected; falling back to DISPLAY_OUTPUT."
+                    );
+                    dump_location = DUMP_DISPLAY_OUTPUT;
+                } else {
+                    warn!("DISPLAY_OUTPUT rejected, falling back to SCALER_OUTPUT");
+                    dump_location = DUMP_SCALER_OUTPUT;
+                }
+
+                if fn_set_dump(handle, dump_location) != 0 && dump_location != DUMP_SCALER_OUTPUT {
+                    warn!("DISPLAY_OUTPUT rejected, falling back to SCALER_OUTPUT");
+                    dump_location = DUMP_SCALER_OUTPUT;
+                }
+
                 if fn_set_dump(handle, dump_location) != 0 {
                     fn_destroy(handle);
                     return Err(anyhow!("Failed to set DILE_VT dump location"));
@@ -640,6 +691,16 @@ fn parse_frame_rate(value: &serde_json::Value) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_webos_34_release_strings() {
+        assert!(release_is_webos_34(
+            "Rockhopper release 3.4.3-590811 (dreadlocks-digya)"
+        ));
+        assert!(release_is_webos_34("WEBOS_VERSION=\"3.4.0\""));
+        assert!(!release_is_webos_34("WEBOS_VERSION=\"6.3.4\""));
+        assert!(!release_is_webos_34("Rockhopper release 3.3.4"));
+    }
 
     #[test]
     fn reads_nested_fractional_video_frame_rate() {
