@@ -33,7 +33,7 @@ RED    := \033[31m
 RESET  := \033[0m
 
 .PHONY: help setup check toolchain-update require-tv cross-image legacy-cross-image build build-webos3 build-local test test-pattern deps-check deps-update release-check \
-        deploy deploy-bin deploy-config deploy-app provision-luna status logs start stop restart \
+        deploy deploy-bin stage-webos3 deploy-config deploy-app provision-luna status logs start stop restart \
         test-capture probe-tv ssh root pair clean cross-clean
 
 ## display available targets and usage
@@ -59,7 +59,8 @@ help:
 	@printf "  $(GREEN)make probe-tv$(RESET)      Read-only legacy webOS ABI/capture compatibility probe\n\n"
 	@printf "$(CYAN)Deployment (TV IP: $(TV_IP)):$(RESET)\n"
 	@printf "  $(GREEN)make deploy$(RESET)        Full deployment: build, upload binary & config, configure systemd/init.d, start\n"
-	@printf "  $(GREEN)make deploy-bin$(RESET)    Quick deploy: scp binary only to TV and restart daemon\n"
+	@printf "  $(GREEN)make deploy-bin$(RESET)    Quick deploy for webOS 5/6: upload binary and restart systemd daemon\n"
+	@printf "  $(GREEN)make stage-webos3$(RESET)  Safely stage legacy webOS 3.x binary and run --help only (no daemon/startup)\n"
 	@printf "  $(GREEN)make deploy-config$(RESET) Quick deploy: scp config.json only to TV and restart daemon\n"
 	@printf "  $(GREEN)make provision-luna$(RESET) Provision Luna manifests and permissions for vtcapture on TV\n\n"
 	@printf "$(CYAN)Service Management & Remote Shell:$(RESET)\n"
@@ -171,6 +172,23 @@ deploy-bin: require-tv provision-luna
 	test "$$LOCAL_SHA" = "$$REMOTE_SHA" || { echo "Binary checksum mismatch" >&2; exit 1; }
 	ssh $(SSH_OPTS) root@$(TV_IP) "systemctl stop lg-hue-sync 2>/dev/null || true; if [ -x $(REMOTE_DIR)/lg-hue-sync ]; then cp -f $(REMOTE_DIR)/lg-hue-sync $(REMOTE_DIR)/lg-hue-sync.previous; fi; mv -f $(REMOTE_DIR)/lg-hue-sync.new $(REMOTE_DIR)/lg-hue-sync; chmod +x $(REMOTE_DIR)/lg-hue-sync; systemctl start lg-hue-sync"
 	@printf "$(GREEN)[+] Binary deployed and service started.$(RESET)\n"
+
+## safely stage the legacy webOS 3.x binary without starting a daemon or changing autostart
+stage-webos3: require-tv
+	@if [ ! -f "$(LEGACY_BINARY)" ]; then \
+	  printf "$(RED)[-] Legacy binary $(LEGACY_BINARY) not found. Run make build-webos3 first.$(RESET)\n"; \
+	  exit 1; \
+	fi
+	@printf "$(CYAN)[*] Staging legacy binary to root@$(TV_IP) without starting it as a service...$(RESET)\n"
+	ssh $(SSH_OPTS) root@$(TV_IP) "mkdir -p $(REMOTE_DIR)"
+	scp $(SCP_OPTS) $(LEGACY_BINARY) root@$(TV_IP):$(REMOTE_DIR)/lg-hue-sync.webos3.new
+	@LOCAL_SHA=$(sha256sum $(LEGACY_BINARY) 2>/dev/null | awk '{print $1}'); \
+	if [ -z "$LOCAL_SHA" ]; then LOCAL_SHA=$(shasum -a 256 $(LEGACY_BINARY) | awk '{print $1}'); fi; \
+	REMOTE_SHA=$(ssh $(SSH_OPTS) root@$(TV_IP) "sha256sum $(REMOTE_DIR)/lg-hue-sync.webos3.new" | awk '{print $1}'); \
+	test "$LOCAL_SHA" = "$REMOTE_SHA" || { echo "Legacy binary checksum mismatch" >&2; exit 1; }
+	ssh $(SSH_OPTS) root@$(TV_IP) "chmod +x $(REMOTE_DIR)/lg-hue-sync.webos3.new; $(REMOTE_DIR)/lg-hue-sync.webos3.new --help >/tmp/lg-hue-sync-webos3-help.txt 2>&1"
+	@printf "$(GREEN)[+] Legacy binary started successfully enough to print --help. It has NOT been installed, daemonized, or added to autostart.$(RESET)\n"
+	@printf "$(YELLOW)[i] Staged path: $(REMOTE_DIR)/lg-hue-sync.webos3.new$(RESET)\n"
 
 ## provision Luna Service 2 manifests and permissions on TV
 provision-luna: require-tv
