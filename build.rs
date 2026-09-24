@@ -28,7 +28,10 @@ fn main() {
         "{compiler} failed compiling webOS legacy compatibility shim"
     );
 
-    // Keep the shim object late in the final linker command so unresolved libc
-    // references from Rust std and native dependencies can resolve to it.
+    // rustc links Linux targets with -nodefaultlibs, so the webOS-patched GCC
+    // driver cannot inject its normal compatibility libraries. Request the SDK's
+    // maintained getauxval backport explicitly, then add our remaining syscall
+    // wrappers to the final linker command.
+    println!("cargo:rustc-link-lib=static=glibc_polyfills");
     println!("cargo:rustc-link-arg={}", object.display());
 }

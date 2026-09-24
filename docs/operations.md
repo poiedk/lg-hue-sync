@@ -45,8 +45,9 @@ Dependency updates are deliberate direct-to-`main` changes: inspect `Cargo.lock`
 [`webosbrew/native-toolchain`](https://github.com/webosbrew/native-toolchain) is the community reference SDK. On macOS, download the matching Darwin archive, extract it to a path without spaces, and run its `relocate-sdk.sh`. Its CMake toolchain file is under `share/buildroot/toolchainfile.cmake`.
 
 An older SDK revision was evaluated previously and failed to satisfy `getauxval` for the Rust
-dependency graph. The current OpenLGTV `2026.08-webos` SDK changes that boundary: its patched GCC
-automatically links a static `glibc-polyfills` library that includes a `getauxval` backport.
+dependency graph. The current OpenLGTV `2026.08-webos` SDK changes that boundary by shipping a static
+`glibc-polyfills` library that includes a `getauxval` backport. Rust's `-nodefaultlibs`
+link mode means this project links that library explicitly.
 The normal Debian Buster container remains canonical for webOS 5/6, while `make build-webos3`
 uses the newer community SDK as an isolated compatibility path for older firmware. [`hyperhdr-webos-loader`](https://github.com/webosbrew/hyperhdr-webos-loader) remains the reference for native service, frontend, autostart, and IPK layout; it uses the same Buildroot SDK, but does not solve this Rust libc boundary.
 
@@ -127,11 +128,13 @@ file target/webos3-armv7/lg-hue-sync
 readelf --version-info target/webos3-armv7/lg-hue-sync
 ```
 
-This path pins the OpenLGTV/webOS Buildroot SDK release `2026.08-webos`. That SDK's patched GCC
-links its static `glibc-polyfills` compatibility library by default, including its `getauxval`
-backport. The project adds only the remaining narrow syscall wrappers currently needed by modern
-Rust dependencies (`gettid` and `sendmmsg`). These extra shims are compiled only when
-`LG_WEBOS_LEGACY=1`; they are not linked into host builds or the normal Debian Buster target.
+This path pins the OpenLGTV/webOS Buildroot SDK release `2026.08-webos`. The SDK ships a static
+`glibc-polyfills` compatibility library with a `getauxval` backport. Rust uses
+`-nodefaultlibs` for this target, so `build.rs` requests that SDK library explicitly instead of
+relying on the patched GCC driver's default library injection. The project adds only the remaining
+narrow syscall wrappers currently needed by modern Rust dependencies (`gettid` and `sendmmsg`).
+These legacy additions are enabled only when `LG_WEBOS_LEGACY=1`; they are not linked into host
+builds or the normal Debian Buster target.
 
 Do not deploy the legacy binary blindly. First run the read-only TV probe:
 
