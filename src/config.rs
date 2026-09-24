@@ -196,6 +196,9 @@ pub struct Config {
     /// Runtime preference: stop sending Nanoleaf UDP frames when off.
     #[serde(default = "default_true")]
     pub nanoleaf_sync_enabled: bool,
+    /// Runtime preference: keep WLED configured but stop realtime DDP frames when off.
+    #[serde(default = "default_true")]
+    pub wled_sync_enabled: bool,
     #[serde(default = "default_fps")]
     pub fps: u32,
     #[serde(default = "default_brightness")]
@@ -361,6 +364,7 @@ impl Config {
             nanoleaf: None,
             wled: None,
             nanoleaf_sync_enabled: true,
+            wled_sync_enabled: true,
             fps: default_fps(),
             brightness_multiplier: default_brightness(),
             hue_output_brightness: default_output_trim(),
