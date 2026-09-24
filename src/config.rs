@@ -115,6 +115,19 @@ fn default_wled_destination_id() -> u8 {
     1
 }
 
+impl Default for WledConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            ip: String::new(),
+            ddp_port: default_wled_port(),
+            led_count: default_wled_led_count(),
+            destination_id: default_wled_destination_id(),
+            alignment: NanoleafAlignment::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NanoleafConfig {
     #[serde(default = "default_true")]
